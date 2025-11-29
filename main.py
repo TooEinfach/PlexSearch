@@ -166,14 +166,89 @@ def main():
             print("\nNo fuzzy matches found.")
             return
 
-    # If no exact and not fuzzy, show server search results
+    print("\nNo exact match found. Showing server search results:")
+    results = plex.search(title)
+    if not results:
+        print("No results from server search.")
+        return
+
+    for r in results[:20]:
+        # prefer common title attributes, fall back to name/tag if needed
+        title_val = getattr(r, "title", None) or getattr(r, "name", None) or getattr(r, "tag", None) or "<unknown>"
+        rtype = getattr(r, "type", type(r).__name__)
+        year = getattr(r, "year", "n/a")
+        library = getattr(r, "librarySectionTitle", "n/a")
+        ratingKey = getattr(r, "ratingKey", "n/a")
+        print(f"- {title_val} ({year}) — {rtype} — {library} — ratingKey {ratingKey}")
+        
+def run_search(title, args, cache):
+    # Exact first
+    exact = search_exact(title, section_id=args.section)
+    if exact:
+        print(f"\nExact match found ({len(exact)}):")
+        for m in exact:
+            print(f"- {m['title']} ({m['year']}) — {m['library']} — ratingKey {m['ratingKey']}")
+        return
+
+    if args.fuzzy:
+        fuzzy_matches = search_fuzzy(title, threshold=args.threshold, section_id=args.section, cache=cache)
+        if fuzzy_matches:
+            print(f"\nFuzzy matches (threshold {args.threshold}):")
+            for m in fuzzy_matches[:20]:
+                print(f"- {m['title']} ({m.get('year')}) — score {m['score']} — ratingKey {m['ratingKey']}")
+            return
+        else:
+            print("\nNo fuzzy matches found.")
+            return
+
+    # If no exact and not fuzzy, show server search results (safe printing)
     print("\nNo exact match found. Showing server search results:")
     results = plex.search(title)
     if not results:
         print("No results from server search.")
         return
     for r in results[:20]:
-        print(f"- {r.title} ({getattr(r,'year', 'n/a')}) — {r.type} — {r.librarySectionTitle} — ratingKey {r.ratingKey}")
+        title_val = getattr(r, "title", None) or getattr(r, "name", None) or getattr(r, "tag", None) or "<unknown>"
+        rtype = getattr(r, "type", type(r).__name__)
+        year = getattr(r, "year", "n/a")
+        library = getattr(r, "librarySectionTitle", "n/a")
+        ratingKey = getattr(r, "ratingKey", "n/a")
+        print(f"- {title_val} ({year}) — {rtype} — {library} — ratingKey {ratingKey}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Check Plex for a movie or show")
+    parser.add_argument("--section", type=int, help="Library section ID to limit search", default=None)
+    parser.add_argument("--fuzzy", action="store_true", help="Use fuzzy matching")
+    parser.add_argument("--threshold", type=int, default=85, help="Fuzzy match threshold 0-100")
+    parser.add_argument("--refresh", action="store_true", help="Force refresh cache")
+    parser.add_argument("--title", type=str, help="Title to search (non-interactive)", default=None)
+    args = parser.parse_args()
+
+    if args.refresh:
+        print("Refreshing cache...")
+        refresh_cache(force=True)
+
+    cache = refresh_cache()
+
+    # Non-interactive mode: run once and exit
+    if args.title:
+        run_search(args.title.strip(), args, cache)
+        return
+
+    # Interactive loop
+    print("Type a movie/show name to search. Type 'exit' or 'quit' to stop.")
+    try:
+        while True:
+            q = input("> ").strip()
+            if not q:
+                continue
+            if q.lower() in ("exit", "quit"):
+                print("Goodbye.")
+                return
+            run_search(q, args, cache)
+    except KeyboardInterrupt:
+        print("\nAborted by user.")
+        return
 
 if __name__ == "__main__":
     main()
